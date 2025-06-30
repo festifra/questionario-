@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Istruttore Amministrativo Contabile</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f4f4; }
+    .container { max-width: 800px; margin: 30px auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 2px 8px #0001; }
+    h1 { text-align: center; }
+    .question { margin-bottom: 18px; }
+    .answers { list-style: none; padding: 0; }
+    .answers li { margin-bottom: 8px; }
+    .timer { font-size: 1.2em; color: #b00; text-align: right; }
+    .btn { background: #0078d7; color: #fff; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; font-size: 1em; }
+    .btn:disabled { background: #aaa; }
+    .result { font-size: 1.2em; margin: 20px 0; }
+    .category { font-size: 0.9em; color: #666; }
+    .progress { margin: 10px 0; }
+    .hidden { display: none; }
+    .answer-correct { background: #c8e6c9; }
+    .answer-wrong { background: #ffcdd2; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Quiz Istruttore Amministrativo Contabile</h1>
+    <input type="file" id="file-input" accept="application/json">
+    <button class="btn" id="start-btn" style="display:none; margin-bottom:10px">Avvia Quiz</button>
+    <button class="btn" id="history-btn" style="display:none; margin-bottom:10px">Storico Tentativi</button>
+    <div class="timer" id="timer"></div>
+    <div id="quiz-area"></div>
+    <div class="progress" id="progress"></div>
+    <div style="display:flex; gap:8px; margin-bottom:10px">
+      <button class="btn" id="prev-btn">Precedente</button>
+      <button class="btn" id="next-btn">Successiva</button>
+      <button class="btn" id="summary-btn">Sommario</button>
+      <button class="btn" id="confirm-btn">Conferma</button>
+      <button class="btn" id="submit-btn" style="display:none; background:#b00">Invia</button>
+    </div>
+    <div class="result" id="result"></div>
+    <button class="btn" id="restart-btn" style="display:none">Ricomincia Quiz</button>
+  </div>
+  <div id="summary-popover" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#0008; z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:20px; border-radius:8px; max-width:90vw; max-height:80vh; overflow:auto;">
+      <h2>Sommario domande</h2>
+      <div id="summary-list"></div>
+      <button class="btn" onclick="document.getElementById('summary-popover').style.display='none'">Chiudi</button>
+    </div>
+  </div>
+  <div id="history-popover" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#0008; z-index:2000; align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:20px; border-radius:8px; max-width:90vw; max-height:80vh; overflow:auto;">
+      <h2>Storico tentativi</h2>
+      <div id="history-list"></div>
+      <button class="btn" onclick="document.getElementById('history-popover').style.display='none'">Chiudi</button>
+    </div>
+  </div>
+  <div id="submit-confirm-popover" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#0008; z-index:3000; align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:20px; border-radius:8px; max-width:90vw; max-height:80vh; overflow:auto; text-align:center;">
+      <h2>Conferma invio quiz</h2>
+      <div id="submit-confirm-msg"></div>
+      <button class="btn" id="submit-confirm-yes">Conferma invio</button>
+      <button class="btn" onclick="document.getElementById('submit-confirm-popover').style.display='none'">Annulla</button>
+    </div>
+  </div>
+  <script>
+    // Configurazione
+    const NUM_DOMANDE = 40;
+    const MAX_PER_CAT = 4;
+    const QUIZ_TIME = 55 * 60; // 55 minuti
+    const CATEGORIE_LIMITATE = ["Informatica", "Lingua Inglese"];
+    let quizData = [];
+    let quiz = [];
+    let current = 0;
+    let answers = [];
+    let confirmed = [];
+    let timerInterval = null;
+    let timeLeft = 60 * 60; // 1 ora
+    let reviewing = false;
+    let quizStartTime = null;
+    let quizEndTime = null;
+    let quizHistoryKey = 'quiz_storico_modugno';
+    let loadedFileName = '';
+    let userStats = {};
+
+    // Carica stats da localStorage
+    function loadStats() {
+      try {
+        userStats = JSON.parse(localStorage.getItem('quiz_stats') || '{}');
+      } catch { userStats = {}; }
+    }
+    function saveStats() {
+      localStorage.setItem('quiz_stats', JSON.stringify(userStats));
+    }
+
+    document.getElementById('file-input').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      loadedFileName = file.name;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          quizData = JSON.parse(evt.target.result);
+          loadStats();
+          document.getElementById('start-btn').style.display = '';
+          document.getElementById('history-btn').style.display = '';
+          document.getElementById('result').innerHTML = '';
+          document.getElementById('quiz-area').innerHTML = '<b>File caricato:</b> ' + file.name + '<br>Premi "Avvia Quiz" per iniziare.';
+          // Nascondi pulsanti quiz
+          document.getElementById('prev-btn').style.display = 'none';
+          document.getElementById('next-btn').style.display = 'none';
+          document.getElementById('summary-btn').style.display = 'none';
+          document.getElementById('confirm-btn').style.display = 'none';
+          document.getElementById('submit-btn').style.display = 'none';
+        } catch (err) {
+          alert('Errore nel file JSON: ' + err);
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('start-btn').addEventListener('click', function() {
+      startQuiz();
+    });
+
+    document.getElementById('history-btn').addEventListener('click', function() {
+      showHistory();
+    });
+
+    function startQuiz(historyObj) {
+      reviewing = false;
+      document.getElementById('result').innerHTML = '';
+      document.getElementById('restart-btn').style.display = 'none';
+      document.getElementById('quiz-area').innerHTML = '';
+      document.getElementById('progress').innerHTML = '';
+      document.getElementById('timer').style.display = '';
+      // Mostra pulsanti quiz
+      document.getElementById('prev-btn').style.display = '';
+      document.getElementById('next-btn').style.display = '';
+      document.getElementById('summary-btn').style.display = '';
+      document.getElementById('confirm-btn').style.display = '';
+      if (historyObj) {
+        quiz = historyObj.quiz.map(normalizzaDomanda);
+        answers = historyObj.answers;
+        confirmed = Array(quiz.length).fill(true);
+        quizStartTime = historyObj.startTime;
+        quizEndTime = historyObj.endTime;
+        reviewing = true;
+        timeLeft = historyObj.timeUsed;
+        showQuestion(0);
+        updateProgress();
+        updateTimer();
+        document.getElementById('timer').innerHTML = 'Tempo impiegato: ' + formatTime(historyObj.timeUsed);
+      } else {
+        quiz = generaQuiz(quizData).map(normalizzaDomanda);
+        answers = Array(quiz.length).fill(null);
+        confirmed = Array(quiz.length).fill(false);
+        current = 0;
+        quizStartTime = Date.now();
+        quizEndTime = null;
+        timeLeft = QUIZ_TIME;
+        showQuestion(0);
+        updateProgress();
+        startTimer();
+      }
+    }
+
+    // Normalizza una domanda in formato {domanda, risposte, corretta, categoria}
+    function normalizzaDomanda(q) {
+      if (q.domanda && q.risposte && typeof q.corretta === 'number') return q;
+      // Adatta da formato {question, answers, correct, categoria}
+      return {
+        domanda: q.domanda || q.question || '',
+        risposte: q.risposte || q.answers || [],
+        corretta: typeof q.corretta === 'number' ? q.corretta : (typeof q.correct === 'number' ? q.correct : 0),
+        categoria: q.categoria || q.category || ''
+      };
+    }
+
+    function generaQuiz(data) {
+      // Seleziona domande con pesi: più errori => più probabilità
+      let domandePerCat = {};
+      for (const cat of CATEGORIE_LIMITATE) domandePerCat[cat] = [];
+      let altre = [];
+      for (const q of data) {
+        if (CATEGORIE_LIMITATE.includes(q.categoria)) {
+          domandePerCat[q.categoria].push(q);
+        } else {
+          altre.push(q);
+        }
+      }
+      // Shuffle e prendi max 4 per categoria limitata, pesando per errori
+      let estratte = [];
+      for (const cat of CATEGORIE_LIMITATE) {
+        let arr = domandePerCat[cat].slice();
+        arr.sort((a, b) => (getErrorRate(b) - getErrorRate(a)) || Math.random() - 0.5);
+        estratte.push(...arr.slice(0, MAX_PER_CAT));
+      }
+      // Rimuovi già estratte da altre
+      let idsEstratte = new Set(estratte.map(q => q.id));
+      altre = altre.filter(q => !idsEstratte.has(q.id));
+      // Shuffle e prendi le restanti
+      altre.sort((a, b) => (getErrorRate(b) - getErrorRate(a)) || Math.random() - 0.5);
+      estratte.push(...altre.slice(0, NUM_DOMANDE - estratte.length));
+      // Shuffle finale
+      estratte = shuffle(estratte);
+      return estratte;
+    }
+
+    function getErrorRate(q) {
+      const stat = userStats[q.id] || { errors: 0, total: 0 };
+      return stat.total ? stat.errors / stat.total : 0;
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function showQuestion(idx) {
+      if (!quiz || !quiz[idx]) return;
+      current = idx;
+      const q = quiz[idx];
+      let html = `<div class='question'><b>Domanda ${idx+1}/${quiz.length}</b><br><span style='font-size:1.1em'>${q.domanda}</span><br><span class='categoria'>Categoria: ${q.categoria}</span></div>`;
+      html += '<div class="answers">';
+      q.risposte.forEach((r, i) => {
+        let checked = answers[idx] === i ? 'checked' : '';
+        let disabled = reviewing || confirmed[idx] ? 'disabled' : '';
+        html += `<label><input type='radio' name='answer' value='${i}' ${checked} ${disabled}> ${r}</label><br>`;
+      });
+      html += '</div>';
+      if (reviewing || confirmed[idx]) {
+        html += `<div class='review'>Risposta corretta: <b>${q.risposte[q.corretta]}</b></div>`;
+        if (answers[idx] !== null) {
+          html += `<div class='review'>Risposta data: <b>${q.risposte[answers[idx]]}</b> ${answers[idx] === q.corretta ? '✅' : '❌'}</div>`;
+        }
+      }
+      document.getElementById('quiz-area').innerHTML = html;
+      document.getElementById('prev-btn').disabled = idx === 0;
+      document.getElementById('next-btn').disabled = idx === quiz.length-1;
+      document.getElementById('confirm-btn').disabled = reviewing || confirmed[idx] || answers[idx] === null;
+      // Mostra il pulsante Invia se non in revisione
+      if (!reviewing) document.getElementById('submit-btn').style.display = '';
+      else document.getElementById('submit-btn').style.display = 'none';
+    }
+
+    document.getElementById('prev-btn').onclick = function() {
+      if (current > 0) showQuestion(current-1);
+    };
+    document.getElementById('next-btn').onclick = function() {
+      if (current < quiz.length-1) showQuestion(current+1);
+    };
+    document.getElementById('summary-btn').onclick = function() {
+      showSummary();
+    };
+    document.getElementById('confirm-btn').onclick = function() {
+      if (reviewing || confirmed[current] || answers[current] === null) return;
+      confirmed[current] = true;
+      if (current < quiz.length-1) {
+        showQuestion(current+1);
+      } else {
+        showQuestion(current); // resta sull'ultima
+      }
+      checkAllConfirmed();
+    };
+    document.getElementById('quiz-area').addEventListener('change', function(e) {
+      if (e.target.name === 'answer') {
+        answers[current] = parseInt(e.target.value);
+        document.getElementById('confirm-btn').disabled = reviewing || confirmed[current] || answers[current] === null;
+      }
+    });
+
+    // Mostra popup conferma invio quiz
+    document.getElementById('submit-btn').onclick = function() {
+      let nonConfermate = confirmed.filter(x=>!x).length;
+      let nonRisposte = answers.filter((a,i)=>!confirmed[i]||a===null).length;
+      let msg = '';
+      if (nonConfermate > 0) msg += `<b>Attenzione:</b> ci sono ${nonConfermate} domande non confermate.<br>`;
+      if (nonRisposte > 0) msg += `Hai ${nonRisposte} domande non risposte.<br>`;
+      msg += 'Vuoi inviare il quiz?';
+      document.getElementById('submit-confirm-msg').innerHTML = msg;
+      document.getElementById('submit-confirm-popover').style.display = 'flex';
+    };
+    document.getElementById('submit-confirm-yes').onclick = function() {
+      document.getElementById('submit-confirm-popover').style.display = 'none';
+      endQuiz();
+    };
+
+    function endQuiz() {
+      clearInterval(timerInterval);
+      quizEndTime = Date.now();
+      let score = 0;
+      let penalita = 0;
+      for (let i=0; i<quiz.length; ++i) {
+        if (answers[i] === quiz[i].corretta) score++;
+        else penalita += 0.15;
+      }
+      let punteggioFinale = (score - penalita).toFixed(2);
+      let timeUsed = Math.max(0, QUIZ_TIME - timeLeft);
+      document.getElementById('result').innerHTML = `<b>Quiz completato!</b><br>Punteggio: <b>${punteggioFinale} / ${quiz.length}</b> (<span style='color:green'>+1</span> esatta, <span style='color:red'>-0.15</span> errata o non data)<br>Tempo impiegato: ${formatTime(timeUsed)}<br><button class='btn' onclick='reviewQuiz()'>Rivedi risposte</button>`;
+      document.getElementById('restart-btn').style.display = '';
+      document.getElementById('timer').style.display = 'none';
+      saveHistory({
+        quiz,
+        answers,
+        startTime: quizStartTime,
+        endTime: quizEndTime,
+        timeUsed,
+        fileName: loadedFileName,
+        punteggioFinale
+      });
+    }
+
+    function reviewQuiz() {
+      reviewing = true;
+      showQuestion(0);
+      updateProgress();
+    }
+
+    function saveHistory(obj, submitted = false) {
+      let storico = JSON.parse(localStorage.getItem(quizHistoryKey) || '[]');
+      if (submitted) {
+        // Invia dati a server o API
+        fetch('https://example.com/api/submit-quiz', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(obj)
+        })
+        .then(response => response.json())
+        .then(data => {
+          alert('Quiz inviato con successo!');
+          storico.push(obj);
+          localStorage.setItem(quizHistoryKey, JSON.stringify(storico));
+        })
+        .catch(error => {
+          alert('Errore durante l\'invio del quiz: ' + error);
+        });
+      } else {
+        storico.push(obj);
+        localStorage.setItem(quizHistoryKey, JSON.stringify(storico));
+      }
+    }
+
+    function showHistory() {
+      let storico = JSON.parse(localStorage.getItem(quizHistoryKey) || '[]');
+      let html = '';
+      if (!storico.length) html = 'Nessun tentativo registrato.';
+      else {
+        html = '<ul style="padding-left:18px">';
+        storico.forEach((s, i) => {
+          let dt = new Date(s.startTime);
+          html += `<li><b>${s.fileName||'quiz'}</b> - ${dt.toLocaleString()} - <b>${s.punteggioFinale||((s.answers.filter((a,j)=>a===s.quiz[j].corretta).length)+'/'+s.quiz.length)}</b> <button class='btn' onclick='loadHistory(${i})'>Rivedi</button></li>`;
+        });
+        html += '</ul>';
+      }
+      document.getElementById('history-list').innerHTML = html;
+      document.getElementById('history-popover').style.display = 'flex';
+    }
+
+    window.loadHistory = function(idx) {
+      let storico = JSON.parse(localStorage.getItem(quizHistoryKey) || '[]');
+      if (storico[idx]) {
+        document.getElementById('history-popover').style.display = 'none';
+        startQuiz(storico[idx]);
+      }
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      updateTimer();
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        updateTimer();
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          endQuiz();
+        }
+      }, 1000);
+    }
+    function updateTimer() {
+      const min = Math.floor(timeLeft / 60);
+      const sec = timeLeft % 60;
+      document.getElementById('timer').textContent = `Tempo rimasto: ${min}:${sec.toString().padStart(2, '0')}`;
+    }
+    function formatTime(seconds) {
+      const min = Math.floor(seconds / 60);
+      const sec = seconds % 60;
+      return `${min}m ${sec}s`;
+    }
+
+    // Funzione showSummary per evitare errore
+    function showSummary() {
+      const list = document.getElementById('summary-list');
+      list.innerHTML = '';
+      for (let i = 0; i < quiz.length; i++) {
+        const stato = confirmed[i] ? '✅' : (answers[i] !== null ? '📝' : '⬜');
+        const btn = document.createElement('button');
+        btn.textContent = `${i + 1} ${stato}`;
+        btn.className = 'btn';
+        btn.style.margin = '2px';
+        btn.onclick = () => {
+          showQuestion(i);
+          document.getElementById('summary-popover').style.display = 'none';
+        };
+        list.appendChild(btn);
+      }
+      document.getElementById('summary-popover').style.display = 'flex';
+    }
+
+    // Nascondi pulsanti quiz all'avvio
+    window.onload = function() {
+      document.getElementById('prev-btn').style.display = 'none';
+      document.getElementById('next-btn').style.display = 'none';
+      document.getElementById('summary-btn').style.display = 'none';
+      document.getElementById('confirm-btn').style.display = 'none';
+      document.getElementById('submit-btn').style.display = 'none';
+    };
+  </script>
+</body>
+</html>
