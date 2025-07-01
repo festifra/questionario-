@@ -12,7 +12,7 @@
     .answers { list-style: none; padding: 0; }
     .answers li { margin-bottom: 8px; }
     .timer { font-size: 1.2em; color: #b00; text-align: right; }
-    .btn { background: #0078d7; color: #fff; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; font-size: 1em; }
+    .btn { background: #0078d7; color: #fff; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; font-size: 1em; margin-bottom: 8px; width: 100%; max-width: 100%; box-sizing: border-box; }
     .btn:disabled { background: #aaa; }
     .result { font-size: 1.2em; margin: 20px 0; }
     .category { font-size: 0.9em; color: #666; }
@@ -20,6 +20,30 @@
     .hidden { display: none; }
     .answer-correct { background: #c8e6c9; }
     .answer-wrong { background: #ffcdd2; }
+    .quiz-btns { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .summary-btn {
+      min-width: 0;
+      padding: 6px 0;
+      font-size: 1em;
+      border-radius: 4px;
+      margin: 0;
+      text-align: center;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+    }
+    @media (max-width: 600px) {
+      .quiz-btns { flex-direction: column; gap: 0; }
+      .btn { font-size: 1em; margin-bottom: 10px; }
+      .summary-grid { grid-template-columns: repeat(5, 1fr); }
+      .summary-btn { font-size: 0.95em; padding: 7px 0; }
+    }
   </style>
 </head>
 <body>
@@ -31,11 +55,10 @@
     <div class="timer" id="timer"></div>
     <div id="quiz-area"></div>
     <div class="progress" id="progress"></div>
-    <div style="display:flex; gap:8px; margin-bottom:10px">
+    <div class="quiz-btns">
       <button class="btn" id="prev-btn">Precedente</button>
       <button class="btn" id="next-btn">Successiva</button>
       <button class="btn" id="summary-btn">Sommario</button>
-      <button class="btn" id="confirm-btn">Conferma</button>
       <button class="btn" id="submit-btn" style="display:none; background:#b00">Invia</button>
     </div>
     <div class="result" id="result"></div>
@@ -44,7 +67,7 @@
   <div id="summary-popover" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#0008; z-index:1000; align-items:center; justify-content:center;">
     <div style="background:#fff; padding:20px; border-radius:8px; max-width:90vw; max-height:80vh; overflow:auto;">
       <h2>Sommario domande</h2>
-      <div id="summary-list"></div>
+      <div id="summary-list" class="summary-grid"></div>
       <button class="btn" onclick="document.getElementById('summary-popover').style.display='none'">Chiudi</button>
     </div>
   </div>
@@ -53,6 +76,7 @@
       <h2>Storico tentativi</h2>
       <div id="history-list"></div>
       <button class="btn" onclick="document.getElementById('history-popover').style.display='none'">Chiudi</button>
+      <button class="btn" id="clear-history-btn" style="background:#b00; margin-left:10px;">Cancella Storico</button>
     </div>
   </div>
   <div id="submit-confirm-popover" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#0008; z-index:3000; align-items:center; justify-content:center;">
@@ -110,7 +134,6 @@
           document.getElementById('prev-btn').style.display = 'none';
           document.getElementById('next-btn').style.display = 'none';
           document.getElementById('summary-btn').style.display = 'none';
-          document.getElementById('confirm-btn').style.display = 'none';
           document.getElementById('submit-btn').style.display = 'none';
         } catch (err) {
           alert('Errore nel file JSON: ' + err);
@@ -138,7 +161,7 @@
       document.getElementById('prev-btn').style.display = '';
       document.getElementById('next-btn').style.display = '';
       document.getElementById('summary-btn').style.display = '';
-      document.getElementById('confirm-btn').style.display = '';
+      document.getElementById('submit-btn').style.display = '';
       if (historyObj) {
         quiz = historyObj.quiz.map(normalizzaDomanda);
         answers = historyObj.answers;
@@ -228,11 +251,11 @@
       html += '<div class="answers">';
       q.risposte.forEach((r, i) => {
         let checked = answers[idx] === i ? 'checked' : '';
-        let disabled = reviewing || confirmed[idx] ? 'disabled' : '';
+        let disabled = reviewing ? 'disabled' : '';
         html += `<label><input type='radio' name='answer' value='${i}' ${checked} ${disabled}> ${r}</label><br>`;
       });
       html += '</div>';
-      if (reviewing || confirmed[idx]) {
+      if (reviewing) {
         html += `<div class='review'>Risposta corretta: <b>${q.risposte[q.corretta]}</b></div>`;
         if (answers[idx] !== null) {
           html += `<div class='review'>Risposta data: <b>${q.risposte[answers[idx]]}</b> ${answers[idx] === q.corretta ? '✅' : '❌'}</div>`;
@@ -241,10 +264,6 @@
       document.getElementById('quiz-area').innerHTML = html;
       document.getElementById('prev-btn').disabled = idx === 0;
       document.getElementById('next-btn').disabled = idx === quiz.length-1;
-      document.getElementById('confirm-btn').disabled = reviewing || confirmed[idx] || answers[idx] === null;
-      // Mostra il pulsante Invia se non in revisione
-      if (!reviewing) document.getElementById('submit-btn').style.display = '';
-      else document.getElementById('submit-btn').style.display = 'none';
     }
 
     document.getElementById('prev-btn').onclick = function() {
@@ -256,20 +275,9 @@
     document.getElementById('summary-btn').onclick = function() {
       showSummary();
     };
-    document.getElementById('confirm-btn').onclick = function() {
-      if (reviewing || confirmed[current] || answers[current] === null) return;
-      confirmed[current] = true;
-      if (current < quiz.length-1) {
-        showQuestion(current+1);
-      } else {
-        showQuestion(current); // resta sull'ultima
-      }
-      checkAllConfirmed();
-    };
     document.getElementById('quiz-area').addEventListener('change', function(e) {
       if (e.target.name === 'answer') {
         answers[current] = parseInt(e.target.value);
-        document.getElementById('confirm-btn').disabled = reviewing || confirmed[current] || answers[current] === null;
       }
     });
 
@@ -298,9 +306,11 @@
         if (answers[i] === quiz[i].corretta) score++;
         else penalita += 0.15;
       }
-      let punteggioFinale = (score - penalita).toFixed(2);
+      let punteggioNetto = score - penalita;
+      let punteggioFinale = (30 * (punteggioNetto / quiz.length)).toFixed(2);
       let timeUsed = Math.max(0, QUIZ_TIME - timeLeft);
-      document.getElementById('result').innerHTML = `<b>Quiz completato!</b><br>Punteggio: <b>${punteggioFinale} / ${quiz.length}</b> (<span style='color:green'>+1</span> esatta, <span style='color:red'>-0.15</span> errata o non data)<br>Tempo impiegato: ${formatTime(timeUsed)}<br><button class='btn' onclick='reviewQuiz()'>Rivedi risposte</button>`;
+      let superato = punteggioFinale >= 21 ? '<span style="color:green">SUPERATO ✅</span>' : '<span style="color:red">NON SUPERATO ❌</span>';
+      document.getElementById('result').innerHTML = `<b>Quiz completato!</b><br>Punteggio: <b>${punteggioFinale} / 30</b> (${superato})<br><small>Calcolo: +1 esatta, -0.15 errata/non data, max 30 punti<br>Soglia superamento: 21 punti</small><br>Tempo impiegato: ${formatTime(timeUsed)}<br><button class='btn' onclick='reviewQuiz()'>Rivedi risposte</button>`;
       document.getElementById('restart-btn').style.display = '';
       document.getElementById('timer').style.display = 'none';
       saveHistory({
@@ -360,6 +370,18 @@
       }
       document.getElementById('history-list').innerHTML = html;
       document.getElementById('history-popover').style.display = 'flex';
+      // Attiva il pulsante cancella storico
+      setTimeout(() => {
+        const btn = document.getElementById('clear-history-btn');
+        if (btn) {
+          btn.onclick = function() {
+            if (confirm('Sei sicuro di voler cancellare tutto lo storico dei tentativi?')) {
+              localStorage.removeItem(quizHistoryKey);
+              showHistory();
+            }
+          };
+        }
+      }, 0);
     }
 
     window.loadHistory = function(idx) {
@@ -397,14 +419,44 @@
     function showSummary() {
       const list = document.getElementById('summary-list');
       list.innerHTML = '';
+      // Costruisci array con info su correttezza
+      let summaryArr = [];
       for (let i = 0; i < quiz.length; i++) {
-        const stato = confirmed[i] ? '✅' : (answers[i] !== null ? '📝' : '⬜');
-        const btn = document.createElement('button');
-        btn.textContent = `${i + 1} ${stato}`;
-        btn.className = 'btn';
-        btn.style.margin = '2px';
+        let stato = 'unanswered';
+        if (reviewing) {
+          if (answers[i] === quiz[i].corretta) stato = 'correct';
+          else stato = 'wrong';
+        } else {
+          stato = answers[i] !== null ? 'answered' : 'unanswered';
+        }
+        summaryArr.push({
+          idx: i,
+          stato
+        });
+      }
+      // In modalità revisione: prima errori, poi corrette
+      if (reviewing) {
+        summaryArr.sort((a, b) => {
+          if (a.stato === b.stato) return a.idx - b.idx;
+          if (a.stato === 'wrong') return -1;
+          if (b.stato === 'wrong') return 1;
+          return a.idx - b.idx;
+        });
+      }
+      for (const s of summaryArr) {
+        let btn = document.createElement('button');
+        btn.textContent = `${s.idx + 1}`;
+        btn.className = 'summary-btn';
+        if (reviewing) {
+          if (s.stato === 'wrong') btn.style.background = '#e53935';
+          if (s.stato === 'correct') btn.style.background = '#43a047';
+        } else {
+          if (s.stato === 'answered') btn.style.background = '#43a047';
+          if (s.stato === 'unanswered') btn.style.background = '#aaa';
+        }
+        btn.style.color = '#fff';
         btn.onclick = () => {
-          showQuestion(i);
+          showQuestion(s.idx);
           document.getElementById('summary-popover').style.display = 'none';
         };
         list.appendChild(btn);
@@ -417,7 +469,6 @@
       document.getElementById('prev-btn').style.display = 'none';
       document.getElementById('next-btn').style.display = 'none';
       document.getElementById('summary-btn').style.display = 'none';
-      document.getElementById('confirm-btn').style.display = 'none';
       document.getElementById('submit-btn').style.display = 'none';
     };
   </script>
