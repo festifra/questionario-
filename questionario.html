@@ -190,13 +190,46 @@
 
     // Normalizza una domanda in formato {domanda, risposte, corretta, categoria}
     function normalizzaDomanda(q) {
-      if (q.domanda && q.risposte && typeof q.corretta === 'number') return q;
-      // Adatta da formato {question, answers, correct, categoria}
+      let domanda;
+      if (q.domanda && q.risposte && typeof q.corretta === 'number') {
+        domanda = q;
+      } else {
+        // Adatta da formato {question, answers, correct, categoria}
+        domanda = {
+          domanda: q.domanda || q.question || '',
+          risposte: q.risposte || q.answers || [],
+          corretta: typeof q.corretta === 'number' ? q.corretta : (typeof q.correct === 'number' ? q.correct : 0),
+          categoria: q.categoria || q.category || '',
+          id: q.id // Mantieni l'ID se presente
+        };
+      }
+      
+      // Mescola l'ordine delle risposte mantenendo traccia di quella corretta
+      return mescolaRisposte(domanda);
+    }
+
+    function mescolaRisposte(domanda) {
+      // Crea array di indici con le risposte
+      let risposteConIndici = domanda.risposte.map((risposta, indice) => ({
+        risposta: risposta,
+        indiceOriginale: indice
+      }));
+      
+      // Mescola l'array
+      risposteConIndici = shuffle(risposteConIndici);
+      
+      // Trova il nuovo indice della risposta corretta
+      let nuovoIndiceCorretto = risposteConIndici.findIndex(
+        item => item.indiceOriginale === domanda.corretta
+      );
+      
+      // Ritorna la domanda con risposte mescolate e nuovo indice corretto
       return {
-        domanda: q.domanda || q.question || '',
-        risposte: q.risposte || q.answers || [],
-        corretta: typeof q.corretta === 'number' ? q.corretta : (typeof q.correct === 'number' ? q.correct : 0),
-        categoria: q.categoria || q.category || ''
+        domanda: domanda.domanda,
+        risposte: risposteConIndici.map(item => item.risposta),
+        corretta: nuovoIndiceCorretto,
+        categoria: domanda.categoria,
+        id: domanda.id // Mantieni l'ID se presente
       };
     }
 
